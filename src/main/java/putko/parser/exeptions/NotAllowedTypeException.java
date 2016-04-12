@@ -1,6 +1,6 @@
 package putko.parser.exeptions;
 
-public class NotAllowedTypeException extends RuntimeException {
+public class NotAllowedTypeException extends ParserException {
 
 	/**
 	 * 

@@ -1,6 +1,6 @@
 # Overview
 
-This projects aims to show aproach to maping Xml to plan Java objects.
+This projects aims to show aproach to maping Xml to plain Java objects.
 It's built upon Reflections and Guava using Streaming API for XML (StAX)
 
 There is no need to create a xml parser from scratch using for instance ANTLR.
@@ -36,7 +36,7 @@ You can read POJO object from xml, for example:
 
 ```java
 	@XmlRoot(name="Test")
-	public class TestXml{
+	public sttaic class TestXml{
 		
 		@XmlElement(name="string")
 		private String testString;
@@ -84,11 +84,12 @@ private Long testLong;
 public class MinValidator extends Validator<Number> {
 
 	@Override
-	public void validate(Number value) {
-		if(value.intValue()<4){
+	public void validate(Number value) throws ValidationException {
+		if (value.intValue() < 4) {
 			throw new MinimumValueException("Should be more than 3");
 		}
 	}
+
 }
 
 ```
@@ -97,6 +98,16 @@ public class MinValidator extends Validator<Number> {
 
 *Currently only elements (@XmlElement) and root (@XmlRoot) can be read, yet you can have POJO classes as type
 *Attributes, Collections and Extended classes are not supported
+*Allowed types
+
+```java
+INT(Integer.class),
+LONG(Long.class),
+DOUBLE(Double.class),
+LOAT(Float.class),
+BOOLEAN(Boolean.class),
+STRING(String.class);
+```
 
 
 

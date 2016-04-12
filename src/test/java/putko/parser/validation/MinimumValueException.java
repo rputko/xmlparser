@@ -1,6 +1,7 @@
 package putko.parser.validation;
 
-public class MinimumValueException extends RuntimeException {
+
+public class MinimumValueException extends ValidationException {
 
 	/**
 	 * 

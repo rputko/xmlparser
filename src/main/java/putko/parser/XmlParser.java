@@ -15,6 +15,7 @@ import java.util.stream.Collectors;
 
 import javax.xml.stream.XMLInputFactory;
 import javax.xml.stream.XMLStreamConstants;
+import javax.xml.stream.XMLStreamException;
 import javax.xml.stream.XMLStreamReader;
 
 import lombok.Getter;
@@ -26,8 +27,10 @@ import putko.parser.annotation.XmlRoot;
 import putko.parser.exeptions.ElementNotAnnotatedException;
 import putko.parser.exeptions.NoSuchElementException;
 import putko.parser.exeptions.NotAllowedTypeException;
+import putko.parser.exeptions.ParserException;
 import putko.parser.exeptions.WrongAnnotationException;
 import putko.parser.validation.Valid;
+import putko.parser.validation.ValidationException;
 import putko.parser.validation.Validator;
 
 import com.google.common.collect.Maps;
@@ -63,7 +66,7 @@ public class XmlParser implements ObjectParser {
 
 	@SuppressWarnings({ "unchecked" })
 	@Override
-	public <T> T readObject(String source, Class<T> objectType) throws Exception {
+	public <T> T readObject(String source, Class<T> objectType) throws ParserException, XMLStreamException, ValidationException {
 		XMLInputFactory factory = XMLInputFactory.newInstance();
 		XMLStreamReader reader = factory.createXMLStreamReader(new ByteArrayInputStream(source.getBytes(StandardCharsets.UTF_8)));
 		String currentName = "";
@@ -81,7 +84,11 @@ public class XmlParser implements ObjectParser {
 						throw new NoSuchElementException(reader.getLocalName());
 					}
 					objectElementsMap.put(reader.getLocalName(), elements);
-					elementTree.put(reader.getLocalName(), objectType.newInstance());
+					try {
+						elementTree.put(reader.getLocalName(), objectType.newInstance());
+					} catch (InstantiationException | IllegalAccessException e) {
+						throw new NotAllowedTypeException(currentName, element.getGenericType());
+					}
 				}
 				element = objectElementsMap.get(elementTree.lastEntry().getKey()).get(reader.getLocalName());
 				if (element == null) {
@@ -93,10 +100,11 @@ public class XmlParser implements ObjectParser {
 				case ELEMENT:
 					currentName = reader.getLocalName();
 					if (!element.getGenericType().isPrimitive() && !isAllowedType(element.getGenericType())) {
-						Class<?> c = Class.forName(element.getGenericType().getTypeName());
-						try{
+						Class<?> c = null;
+						try {
+							c = Class.forName(element.getGenericType().getTypeName());
 							elementTree.put(currentName, (T) c.newInstance());
-						}catch(InstantiationException ie){
+						} catch (Exception e) {
 							throw new NotAllowedTypeException(currentName, element.getGenericType());
 						}
 						objectElementsMap.put(currentName, getObjectElements(c));
@@ -109,8 +117,18 @@ public class XmlParser implements ObjectParser {
 			case XMLStreamConstants.CHARACTERS:
 				if (element != null) {
 					Entry<String, T> entry = elementTree.lastEntry();
-					Field field = entry.getValue().getClass().getDeclaredField(objectElementsMap.get(entry.getKey()).get(currentName).getFieldName());
-					setFieldValue(field, entry.getValue(), reader.getText().trim(), element);
+					Field field;
+					try {
+						field = entry.getValue().getClass().getDeclaredField(objectElementsMap.get(entry.getKey()).get(currentName).getFieldName());
+					} catch (NoSuchFieldException | SecurityException e) {
+						throw (ParserException) e.getCause();
+					}
+					try {
+						setFieldValue(field, entry.getValue(), reader.getText().trim(), element);
+					} catch (IllegalArgumentException | IllegalAccessException e) {
+						throw (ParserException) e.getCause();
+					}
+
 				}
 				break;
 			case XMLStreamConstants.END_ELEMENT:
@@ -124,12 +142,20 @@ public class XmlParser implements ObjectParser {
 						switch (element.getType()) {
 						case ELEMENT:
 							if (!element.getGenericType().isPrimitive() && !isAllowedType(element.getGenericType())) {
-								setElement(elementTree, objectElementsMap);
+								try {
+									setElement(elementTree, objectElementsMap);
+								} catch (NoSuchFieldException e) {
+									throw (ParserException) e.getCause();
+								}
 								elementTree.remove(elementTree.lastEntry().getKey());
 							}
 							break;
 						case ROOT:
-							setElement(elementTree, objectElementsMap);
+							try {
+								setElement(elementTree, objectElementsMap);
+							} catch (NoSuchFieldException e) {
+								throw (ParserException) e.getCause();
+							}
 							elementTree.remove(elementTree.lastEntry().getKey());
 							break;
 						default:
@@ -143,15 +169,22 @@ public class XmlParser implements ObjectParser {
 		return elementTree.lastEntry().getValue();
 	}
 
-	private <T> void setElement(NavigableMap<String, T> elementTree, HashMap<String, HashMap<String, ElementDescription>> objectElementsMap) throws NoSuchFieldException, IllegalAccessException {
+	private <T> void setElement(NavigableMap<String, T> elementTree, HashMap<String, HashMap<String, ElementDescription>> objectElementsMap)
+			throws NoSuchFieldException, ParserException, ValidationException {
 		String key = (String) elementTree.keySet().toArray()[elementTree.size() - 2];
-		Field field = elementTree.get(key).getClass().getDeclaredField(objectElementsMap.get(key).get(elementTree.lastEntry().getKey()).getFieldName());
+		Field field = elementTree.get(key).getClass()
+				.getDeclaredField(objectElementsMap.get(key).get(elementTree.lastEntry().getKey()).getFieldName());
 		field.setAccessible(true);
 		validateField(elementTree.lastEntry().getValue(), field);
-		field.set(elementTree.get(key), elementTree.lastEntry().getValue());
+		try {
+			field.set(elementTree.get(key), elementTree.lastEntry().getValue());
+		} catch (IllegalArgumentException | IllegalAccessException e) {
+			throw (ParserException) e.getCause();
+		}
 	}
 
-	private <T> void setFieldValue(Field field, T value, String text, ElementDescription element) throws NumberFormatException, IllegalArgumentException, IllegalAccessException {
+	private <T> void setFieldValue(Field field, T value, String text, ElementDescription element) throws NumberFormatException,
+			IllegalArgumentException, IllegalAccessException, ValidationException, NotAllowedTypeException {
 		field.setAccessible(true);
 		if (element.getGenericType().isPrimitive()) {
 			if (!AllowedPrimitiveTypes.getPrimitiveType(element.getGenericType()).isPresent()) {
@@ -206,51 +239,60 @@ public class XmlParser implements ObjectParser {
 		}
 	}
 
-	private <T> void setIntValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException {
+	private <T> void setIntValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException,
+			ValidationException {
 		Integer val = Integer.parseInt(text);
 		validateField(val, field);
 		field.set(value, val);
 	}
 
-	private <T> void setDoubleValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException {
+	private <T> void setDoubleValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException,
+			IllegalAccessException, ValidationException {
 		Double val = Double.parseDouble(text);
 		validateField(val, field);
 		field.set(value, val);
 	}
 
-	private <T> void setFloatValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException {
+	private <T> void setFloatValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException,
+			ValidationException {
 		Float val = Float.parseFloat(text);
 		validateField(val, field);
 		field.set(value, val);
 	}
 
-	private <T> void setBooleanValue(Field field, T value, String text) throws IllegalArgumentException, IllegalAccessException {
+	private <T> void setBooleanValue(Field field, T value, String text) throws IllegalArgumentException, IllegalAccessException, ValidationException {
 		Boolean val = Boolean.parseBoolean(text);
 		validateField(val, field);
 		field.set(value, val);
 	}
 
-	private <T> void setLongValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException {
+	private <T> void setLongValue(Field field, T value, String text) throws NumberFormatException, IllegalArgumentException, IllegalAccessException,
+			ValidationException {
 		Long val = Long.parseLong(text);
 		validateField(val, field);
 		field.set(value, val);
 	}
 
-	private <T> HashMap<String, ElementDescription> getObjectElements(Class<T> object) throws ElementNotAnnotatedException, WrongAnnotationException {
-		Set<Class<? extends Annotation>> classParserAnnotations = Sets.intersection(ALLOWED_CLASS_ANNOTATIONS, Arrays.stream(object.getAnnotations()).map(annotation -> {
-			return annotation.annotationType();
-		}).collect(Collectors.toSet()));
+	private <T> HashMap<String, ElementDescription> getObjectElements(Class<T> object) throws ElementNotAnnotatedException, WrongAnnotationException,
+			NotAllowedTypeException {
+		Set<Class<? extends Annotation>> classParserAnnotations = Sets.intersection(ALLOWED_CLASS_ANNOTATIONS, Arrays.stream(object.getAnnotations())
+				.map(annotation -> {
+					return annotation.annotationType();
+				}).collect(Collectors.toSet()));
 		validateElementAnnotations(object.getName(), classParserAnnotations, !configuration.isIgnoreNotAnnotatedElements());
 		String name = object.getAnnotation(XmlRoot.class) == null ? "" : object.getAnnotation(XmlRoot.class).name();
 		HashMap<String, ElementDescription> objectElements = Maps.newHashMap();
-		objectElements.put(name.isEmpty() ? object.getSimpleName() : name, ElementDescription.builder().genericType(object.getClass()).fieldName(object.getSimpleName()).type(ValueType.ROOT).build());
-		Arrays.stream(object.getDeclaredFields()).forEach(field -> {
-			Set<Class<? extends Annotation>> fieldParserAnnotations = Sets.intersection(ALLOWED_FIELD_ANNOTATIONS, Arrays.stream(field.getAnnotations()).map(annotation -> {
-				return annotation.annotationType();
-			}).collect(Collectors.toSet()));
-			validateElementAnnotations(field.getName(), fieldParserAnnotations, !configuration.isIgnoreNotAnnotatedElements());
-			putFieldToObjectElements(field, objectElements);
-		});
+		objectElements.put(name.isEmpty() ? object.getSimpleName() : name,
+				ElementDescription.builder().genericType(object.getClass()).fieldName(object.getSimpleName()).type(ValueType.ROOT).build());
+		Arrays.stream(object.getDeclaredFields()).forEach(
+				field -> {
+					Set<Class<? extends Annotation>> fieldParserAnnotations = Sets.intersection(ALLOWED_FIELD_ANNOTATIONS,
+							Arrays.stream(field.getAnnotations()).map(annotation -> {
+								return annotation.annotationType();
+							}).collect(Collectors.toSet()));
+					validateElementAnnotations(field.getName(), fieldParserAnnotations, !configuration.isIgnoreNotAnnotatedElements());
+					putFieldToObjectElements(field, objectElements);
+				});
 		return objectElements;
 	}
 
@@ -265,7 +307,8 @@ public class XmlParser implements ObjectParser {
 		}
 	}
 
-	private static void validateElementAnnotations(String elementName, Set<Class<? extends Annotation>> fieldParserAnnotations, boolean performCheck) {
+	private static void validateElementAnnotations(String elementName, Set<Class<? extends Annotation>> fieldParserAnnotations, boolean performCheck)
+			throws WrongAnnotationException, ElementNotAnnotatedException {
 		if (performCheck && fieldParserAnnotations.size() == 0)
 			throw new ElementNotAnnotatedException(elementName);
 		if (fieldParserAnnotations.size() >= 2)
@@ -273,22 +316,23 @@ public class XmlParser implements ObjectParser {
 	}
 
 	@SuppressWarnings("unchecked")
-	private <T> void validateField(T val, Field field) {
+	private <T> void validateField(T val, Field field) throws ValidationException {
 		if (field.getAnnotation(Valid.class) == null) {
 			return;
 		}
-		Arrays.stream(field.getAnnotation(Valid.class).value()).forEach(validator -> {
-			Validator<T> validatorObject = (Validator<T>) ACTIVE_VALIDATORS.get(validator);
+		Class<? extends Validator<?>>[] validators = field.getAnnotation(Valid.class).value();
+		for(int i=0; i<validators.length; i++){
+			Validator<T> validatorObject = (Validator<T>) ACTIVE_VALIDATORS.get(validators[i]);
 			if (validatorObject == null) {
 				try {
-					validatorObject = (Validator<T>) validator.newInstance();
-					ACTIVE_VALIDATORS.put(validator, validatorObject);
-				} catch (Exception e) {
-					e.printStackTrace();
+					validatorObject = (Validator<T>) validators[i].newInstance();
+				} catch (InstantiationException | IllegalAccessException e) {
+					throw (RuntimeException)e.getCause();
 				}
+				ACTIVE_VALIDATORS.put(validators[i], validatorObject);
 			}
 			validatorObject.validate(val);
-		});
+		};
 	}
 
 }
