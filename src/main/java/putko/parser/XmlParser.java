@@ -331,7 +331,7 @@ public class XmlParser implements ObjectParser {
 				}
 				ACTIVE_VALIDATORS.put(validators[i], validatorObject);
 			}
-			validatorObject.validate(val);
+			validatorObject.validate(val, field);
 		};
 	}
 

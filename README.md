@@ -84,9 +84,9 @@ private Long testLong;
 public class MinValidator extends Validator<Number> {
 
 	@Override
-	public void validate(Number value) throws ValidationException {
+	public void validate(Number value, Field field) throws ValidationException {
 		if (value.intValue() < 4) {
-			throw new MinimumValueException("Should be more than 3");
+			throw new MinimumValueException(field.getName() + "should have value greater than 3");
 		}
 	}
 
