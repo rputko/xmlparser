@@ -96,9 +96,9 @@ public class MinValidator extends Validator<Number> {
 	
 ## Known Limitations
 
-*Currently only elements (@XmlElement) and root (@XmlRoot) can be read, yet you can have POJO classes as type
-*Attributes, Collections and Extended classes are not supported
-*Allowed types
+* Currently only elements (@XmlElement) and root (@XmlRoot) can be read, yet you can have POJO classes as type
+* Attributes, Collections and Extended classes are not supported
+* Allowed types
 
 ```java
 INT(Integer.class),
