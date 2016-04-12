@@ -10,7 +10,7 @@ import putko.parser.validation.ValidationException;
 @SuppressWarnings("restriction")
 public interface ObjectParser {
 
-	public <T> T readObject(String source, Class<T> objectType) throws  XMLStreamException, ParserException, NoSuchFieldException, ValidationException;
+	public <T> T readObject(String source, Class<T> objectType) throws  XMLStreamException, ParserException, ValidationException;
 	
 	public Configuration getConfiguration();
 	

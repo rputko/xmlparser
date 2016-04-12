@@ -1,10 +1,10 @@
 # Overview
 
-This projects aims to show aproach to maping Xml to plain Java objects.
+This projects aims to show the approach to maping XML to plain Java objects.
 It's built upon Reflections and Guava using Streaming API for XML (StAX)
 
-There is no need to create a xml parser from scratch using for instance ANTLR.
-So the main goal is to show how to use existing solution.
+There is no need to create an XML parser from scratch using for instance ANTLR.
+So the main goal is to show how to use existing solutions.
 
 # Installation
 
